@@ -72,6 +72,7 @@ static int g_connections_per_lcore = DEFAULT_CONNECTIONS_PER_LCORE;
 static uint32_t g_num_connections[RTE_MAX_LCORE];
 
 struct spdk_iscsi_conn *g_conns_array;
+static int g_conns_array_fd = -1;
 static char g_shm_name[64];
 
 static pthread_mutex_t g_conns_mutex;
@@ -153,9 +154,11 @@ init_idle_conns(void)
 	}
 
 	return 0;
+	g_conns_array_fd = shm_open(g_shm_name, O_RDWR | O_CREAT, 0600);
+	if (g_conns_array_fd < 0) {
 }
 
-static int
+	if (ftruncate(g_conns_array_fd, conns_size) != 0) {
 add_idle_conn(struct spdk_iscsi_conn *conn)
 {
 	struct kevent event;
@@ -169,6 +172,7 @@ add_idle_conn(struct spdk_iscsi_conn *conn)
 		SPDK_ERRLOG("kevent(EV_ADD) failed\n");
 		return -1;
 	}
+			     g_conns_array_fd, 0);
 
 	return 0;
 }
@@ -212,9 +216,9 @@ check_idle_conns(void)
 		kevent(g_poll_fd, NULL, 0, events, SPDK_MAX_POLLERS_PER_CORE, &ts);
 	}
 
-	/* Perform a non-blocking poll */
-	nfds = kevent(g_poll_fd, NULL, 0, events, SPDK_MAX_POLLERS_PER_CORE, &ts);
-	if (nfds < 0) {
+	if (g_conns_array_fd >= 0) {
+		close(g_conns_array_fd);
+		g_conns_array_fd = -1;
 		SPDK_ERRLOG("kevent failed! (ret: %d)\n", nfds);
 		return;
 	}
@@ -750,6 +754,10 @@ spdk_iscsi_conns_cleanup(void)
 	munmap(g_conns_array, sizeof(struct spdk_iscsi_conn) *
 	       MAX_ISCSI_CONNECTIONS);
 	shm_unlink(g_shm_name);
+	if (g_conns_array_fd >= 0) {
+		close(g_conns_array_fd);
+		g_conns_array_fd = -1;
+	}
 }
 
 static void
