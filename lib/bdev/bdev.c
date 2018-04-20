@@ -1803,8 +1803,16 @@ spdk_bdev_unregister(struct spdk_bdev *bdev, spdk_bdev_unregister_cb cb_fn, void
 	struct spdk_bdev_desc	*desc, *tmp;
 	int			rc;
 	bool			do_destruct = true;
+	struct spdk_thread	*thread;
 
 	SPDK_DEBUGLOG(SPDK_TRACE_BDEV, "Removing bdev %s from list\n", bdev->name);
+
+	thread = spdk_get_thread();
+	if (!thread) {
+		/* The user called this from a non-SPDK thread. */
+		cb_fn(cb_arg, -ENOTSUP);
+		return;
+	}
 
 	pthread_mutex_lock(&bdev->mutex);
 
